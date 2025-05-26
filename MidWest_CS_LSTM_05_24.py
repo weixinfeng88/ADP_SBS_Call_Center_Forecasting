@@ -74,7 +74,6 @@ for month_number in ['2024-11-15']:
     holiday_data['date'] = holiday_data.Date.dt.date
     data['datetime'] = pd.to_datetime(data.conversation_start_interval_tmst)
     data['date'] = data.datetime.dt.date
-    
     data.datetime = data.datetime.dt.floor('T')
     data['datetime'] = data['datetime'].apply(
         lambda x: x.ceil('30T') if x.minute == 29 else x
