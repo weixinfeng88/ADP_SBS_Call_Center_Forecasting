@@ -118,10 +118,14 @@ for month_number in ['2024-11-15','2024-12-15','2025-01-15']:
         time_data = time_data.groupby(time_data.index).sum()
         time_data = time_data.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
         shifted_data = pd.concat([time_data.shift(i) for i in range(start_time,end_time)], axis=1)
+        
+        
         add_data = data[data['time'] == time].set_index('date')[add_column]
         add_data = add_data.groupby(add_data.index).sum()
         add_data = add_data.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
         add_data_ = pd.concat([add_data.shift(i) for i in range(start_time,end_time)], axis=1)
+        
+        
         time_data1 = data[data['time'] == time1].set_index('date')['offered']    
         time_data1 = time_data1.groupby(time_data1.index).sum()
         time_data1 = time_data1.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
@@ -163,6 +167,7 @@ for month_number in ['2024-11-15','2024-12-15','2025-01-15']:
                           + [f'freq_last{i}' for i in range(start_time+1,end_time+1) ] + \
                           [f'freq_next{i}' for i in range(start_time+1,end_time+1) ]+ \
                            ['years_data']).sort_values('datetime').reset_index(drop = True)
+    
     matrix['year'] = matrix.datetime.map(lambda x:x.year)
     matrix['month'] = matrix.datetime.map(lambda x:x.month)
     matrix['day'] = matrix.datetime.map(lambda x:x.day)
@@ -202,10 +207,15 @@ for month_number in ['2024-11-15','2024-12-15','2025-01-15']:
         time_data = time_data.groupby(time_data.index).sum()    
         time_data = time_data.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
         shifted_data = pd.concat([time_data.shift(i) for i in range(start_time,end_time)], axis=1)
+        
+        
         add_data = data[data['time'] == time].set_index('date')[add_column]
         add_data = add_data.groupby(add_data.index).sum()
         add_data = add_data.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
         add_data_ = pd.concat([add_data.shift(i) for i in range(start_time,end_time)], axis=1)
+        
+        
+        
         time_data1 = data[data['time'] == time1].set_index('date')['offered'] 
         time_data1 = time_data1.groupby(time_data1.index).sum()
         time_data1 = time_data1.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
@@ -343,16 +353,6 @@ for month_number in ['2024-11-15','2024-12-15','2025-01-15']:
         model_1.add(LSTM(50, return_sequences=False))
         model_1.add(Dense(25))
         model_1.add(Dense(1))
-        # model_1 = Sequential()
-        # model_1.add(LSTM(50, return_sequences=True, input_shape=(time_step, 1)))
-        # model_1.add(Dense(25))
-        # model_1.add(LSTM(20, return_sequences=False))
-        # model_1.add(Dense(1))
-        # model_2 = Sequential()
-        # model_2.add(LSTM(50, return_sequences=True, input_shape=(time_step, 1)))
-        # model_2.add(LSTM(50, return_sequences=False))
-        # model_2.add(Dense(25))
-        # model_2.add(Dense(1))
     
         # 编译模型
         model_1.compile(optimizer='adam', loss='mean_squared_error')
