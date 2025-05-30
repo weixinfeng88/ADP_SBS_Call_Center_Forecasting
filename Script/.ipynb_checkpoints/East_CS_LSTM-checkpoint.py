@@ -40,20 +40,20 @@ def calculate_mape(actual, predicted):
     return mape
 
 # set up the interval need to forecast here
-unique_times = [ datetime.time(8, 0),datetime.time(8, 30),datetime.time(9, 0)
-                ,datetime.time(9, 30),datetime.time(10, 0),
+unique_times = [ datetime.time(7, 0), datetime.time(7, 30), datetime.time(8, 0)
+                ,datetime.time(8, 30),datetime.time(9, 0), datetime.time(9, 30), datetime.time(10, 0),
 datetime.time(10, 30), datetime.time(11, 0), datetime.time(11, 30),
 datetime.time(12, 0), datetime.time(12, 30), datetime.time(13, 0),
 datetime.time(13, 30), datetime.time(14, 0), datetime.time(14, 30),
 datetime.time(15, 0), datetime.time(15, 30), datetime.time(16, 0),
-datetime.time(16, 30), datetime.time(17, 0), datetime.time(17, 30),datetime.time(18,0),datetime.time(18,30),datetime.time(19,0),datetime.time(19,30),datetime.time(20,0)
+datetime.time(16, 30), datetime.time(17, 0), datetime.time(17, 30),
+                 datetime.time(18, 0), datetime.time(18, 30), datetime.time(19, 0)
 ]
 
-for month_number in ['2024-11-15']:
-#for month_number in ['2024-11-15','2024-12-15','2025-01-15','2025-02-15','2025-03-15']:
-#for month_number in ['2024-11-15','2024-12-15','2025-01-15']:
+#for month_number in ['2024-11-15']:
+for month_number in ['2024-11-15','2024-12-15','2025-01-15','2025-02-15','2025-03-15']:
     #ETL Process
-    data = pd.read_excel('workspace/ADP_SBS_Call_Center_Forecasting/Data/MidWest_WFM_Stat_2025_05_16.xlsx')
+    data = pd.read_excel('workspace/CS East WFM STAT 2025_05_14.xlsx')
     pd.set_option('display.max_rows', 100)
     data.columns = ['conversation_start_interval_tmst', 'Time', 'offered', 'actans',
            'actabn', 'absActHt', 'absActSa', 'parent', 'child', 'fiscalDate',
@@ -61,11 +61,11 @@ for month_number in ['2024-11-15']:
     
     data = data[~data .offered.isna()]
     
-    #data = data[data .offered != 0]
+    data = data[data .offered != 0]
     # Month one and half need to set up 
     data_=data
     data = data[data.conversation_start_interval_tmst<=pd.to_datetime('{} 00:00:00'.format(month_number))]
-    holiday_data = pd.read_excel(r'workspace/ADP_SBS_Call_Center_Forecasting/Data/holiday.xlsx')
+    holiday_data = pd.read_excel(r'workspace/holiday.xlsx')
     holiday_data['~is_holiday'] = 0
     Holiday_name = ['Christmas Day', 'Columbus Day',
            'Independence Day', 'Labor Day', 'Martin Luther King Jr. Day',
@@ -74,6 +74,7 @@ for month_number in ['2024-11-15']:
     holiday_data['date'] = holiday_data.Date.dt.date
     data['datetime'] = pd.to_datetime(data.conversation_start_interval_tmst)
     data['date'] = data.datetime.dt.date
+    
     data.datetime = data.datetime.dt.floor('T')
     data['datetime'] = data['datetime'].apply(
         lambda x: x.ceil('30T') if x.minute == 29 else x
@@ -134,17 +135,11 @@ for month_number in ['2024-11-15']:
         time_data2 = time_data2.groupby(time_data2.index).sum()
         time_data2 = time_data2.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
         shifted_data2 = pd.concat([time_data2.shift(i) for i in range(start_time,end_time)], axis=1)
-        df=time_data.to_frame(name='offer')
-        df_last_year = df.copy()
-        df_last_year.index = df_last_year.index + pd.DateOffset(years=1)
-        df_last_year = df_last_year.rename(columns={'offer': 'offered_last_year'})
-        df_last_two_year = df.copy()
-        df_last_two_year.index = df_last_two_year.index + pd.DateOffset(years=2)
-        df_last_two_year = df_last_two_year.rename(columns={'offer': 'offered_last_two_year'})        
-        # Step 3: Join on index
-        result = df.join(df_last_year, how='left').join(df_last_two_year,how='left')
-        year_data=result[['offered_last_year','offered_last_two_year']]
-        #year_data = time_data.shift(251)
+        
+        
+        year_data = time_data.shift(251)
+        
+    
         # 将当前时间点、前半小时和后半小时的数据拼接
         combined_data = pd.concat([time_data,add_data_, shifted_data,shifted_data1,shifted_data2,year_data], axis=1)
         
@@ -230,17 +225,10 @@ for month_number in ['2024-11-15']:
         time_data2 = time_data2.groupby(time_data2.index).sum()
         time_data2 = time_data2.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
         shifted_data2 = pd.concat([time_data2.shift(i) for i in range(start_time,end_time)], axis=1)
-        df=time_data.to_frame(name='offer')
-        df_last_year = df.copy()
-        df_last_year.index = df_last_year.index + pd.DateOffset(years=1)
-        df_last_year = df_last_year.rename(columns={'offer': 'offered_last_year'})
-        df_last_two_year = df.copy()
-        df_last_two_year.index = df_last_two_year.index + pd.DateOffset(years=2)
-        df_last_two_year = df_last_two_year.rename(columns={'offer': 'offered_last_two_year'})        
-        # Step 3: Join on index
-        result = df.join(df_last_year, how='left').join(df_last_two_year,how='left')
-        year_data=result[['offered_last_year','offered_last_two_year']]
-        #year_data = time_data.shift(251)
+        
+        
+        year_data = time_data.shift(251)
+        
     
         # 将当前时间点、前半小时和后半小时的数据拼接
         combined_data = pd.concat([time_data,add_data_, shifted_data,shifted_data1,shifted_data2,year_data], axis=1)
@@ -437,7 +425,7 @@ for month_number in ['2024-11-15']:
     all_predict['hour'] = all_predict.datetime.dt.hour
     pd.merge(all_predict,lstm_data[['offered','datetime']],on = ['datetime'])
     calculate_mape(all_predict.offered,all_predict.predict)
-    all_predict.to_excel(r'workspace/MidWest_CS_Test_05_17_{}.xlsx'.format(month_number))
+    all_predict.to_excel(r'workspace/East_CS_Test_{}.xlsx'.format(month_number))
     time_ = []
     for (hour,minute) in fill_na_predict[['hour','minute']].drop_duplicates().to_numpy()[:]:
         now_fill_na_predict = fill_na_predict[(fill_na_predict.hour == hour)&(fill_na_predict.minute == minute)]
@@ -449,4 +437,4 @@ for month_number in ['2024-11-15']:
     all_feature = pd.merge(all_feature,data_[['offered','conversation_start_interval_tmst']],left_on = ['datetime'],right_on=['conversation_start_interval_tmst'])
     all_feature = all_feature.sort_values('datetime').reset_index(drop = True)
     all_feature['mape']=np.abs(all_feature['offered']-all_feature['predict'])/(all_feature['offered'])*100
-    all_feature.to_excel(r'workspace/MidWest_CS_Target_05_17_{}.xlsx'.format(month_number))
+    all_feature.to_excel(r'workspace/East_CS_Target_{}.xlsx'.format(month_number))
