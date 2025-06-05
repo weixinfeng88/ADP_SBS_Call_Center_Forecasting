@@ -48,7 +48,7 @@ def calculate_mape(actual, predicted):
     mape = np.mean(np.abs((actual[mask] - predicted[mask]) / actual[mask])) * 100
     return mape
 
-def ETL(month_list,data,holiday_data,full_dates,unique_times):
+def ETL(month_list,data,holiday_data,unique_times):
     '''
     month_list is the list you want to forecast one and half month in advanced, for example
     , if you want to forecast May, 2025, please input ['2025-03-15'], also you can include multiple value in the list
@@ -59,21 +59,6 @@ def ETL(month_list,data,holiday_data,full_dates,unique_times):
     unique_times are the intervals need to forecast for every day;
     '''
     for month_number in month_list:
-    #for month_number in ['2024-11-15','2024-12-15','2025-01-15','2025-02-15','2025-03-15']:
-    #for month_number in ['2024-11-15','2024-12-15','2025-01-15']:
-        #ETL Process
-        
-        #data=df.copy()
-        #pd.set_option('display.max_rows', 100)
-        data.columns = ['conversation_start_interval_tmst', 'Time', 'offered', 'actans',
-               'actabn', 'absActHt', 'absActSa', 'parent', 'child', 'fiscalDate',
-               'fiscalYear', 'ficalQuarter', 'fiscalMonth', 'fiscalWeek', 'DOW']
-        
-        data = data[~data .offered.isna()]
-        
-        #data = data[data .offered != 0]
-        # Month one and half need to set up 
-        data_=data.copy()
         data = data[data.conversation_start_interval_tmst<=pd.to_datetime('{} 00:00:00'.format(month_number))]
         holiday_data['~is_holiday'] = 0
         Holiday_name = ['Christmas Day', 'Columbus Day',
@@ -98,9 +83,6 @@ def ETL(month_list,data,holiday_data,full_dates,unique_times):
         date_column=date_column.set_index('date')
         date_column = date_column[~date_column.index.duplicated(keep='first')]
         date_column=date_column.sort_values('date')
-        # 获取所有唯一的时间点（如每天的09:00, 09:30等）
-        #unique_times = data['time'].unique()
-        
         # 获取所有唯一的日期
         unique_dates = data['date'].unique()
         data = pd.merge(data,holiday_data,on = 'date',how = 'left').fillna(1)
@@ -125,9 +107,185 @@ def ETL(month_list,data,holiday_data,full_dates,unique_times):
         for time,time1,time2 in zip(unique_times,np.roll(unique_times, shift=-1),np.roll(unique_times, shift=1)):
             # 过滤出当前时间点的数据
             time_data = data[data['time'] == time].set_index('date')['offered']    
-            # full_dates #= pd.date_range(start=unique_dates.min(), end=unique_dates.max(), freq='B')  # 仅工作日
+            full_dates = pd.date_range(start=unique_dates.min(), end=unique_dates.max(), freq='B')  # 仅工作日
             full_dates = full_dates.difference(holiday_datetime)
-            #time_data = time_data.groupby(time_data.index).sum()
+            time_data = time_data.groupby(time_data.index).sum()
+            time_data = time_data.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
+            shifted_data = pd.concat([time_data.shift(i) for i in range(start_time,end_time)], axis=1)
+            
+            
+            add_data = data[data['time'] == time].set_index('date')[add_column]
+            add_data = add_data.groupby(add_data.index).sum()
+            add_data = add_data.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
+            add_data_ = pd.concat([add_data.shift(i) for i in range(start_time,end_time)], axis=1)
+            
+            
+            time_data1 = data[data['time'] == time1].set_index('date')['offered']    
+            time_data1 = time_data1.groupby(time_data1.index).sum()
+            time_data1 = time_data1.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
+            shifted_data1 = pd.concat([time_data1.shift(i) for i in range(start_time,end_time)], axis=1)
+            
+            time_data2 = data[data['time'] == time2].set_index('date')['offered']    
+            time_data2 = time_data2.groupby(time_data2.index).sum()
+            time_data2 = time_data2.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
+            shifted_data2 = pd.concat([time_data2.shift(i) for i in range(start_time,end_time)], axis=1)
+            df=time_data.to_frame(name='offer')
+            df_last_year = df.copy()
+            df_last_year.index = df_last_year.index + pd.DateOffset(years=1)
+            df_last_year = df_last_year.rename(columns={'offer': 'offered_last_year'})
+            df_last_two_year = df.copy()
+            df_last_two_year.index = df_last_two_year.index + pd.DateOffset(years=2)
+            df_last_two_year = df_last_two_year.rename(columns={'offer': 'offered_last_two_year'})        
+            # Step 3: Join on index
+            result = df.join(df_last_year, how='left').join(df_last_two_year,how='left')
+            year_data=result[['offered_last_year','offered_last_two_year']]
+            #year_data = time_data.shift(251)
+            # 将当前时间点、前半小时和后半小时的数据拼接
+            combined_data = pd.concat([time_data,add_data_, shifted_data,shifted_data1,shifted_data2,year_data], axis=1)
+            combined_data = combined_data.merge(date_column, left_index=True, right_index=True, how='left')
+    
+            # 创建日期+时间列
+            #datetime_column = np.array([pd.Timestamp(date) + pd.Timedelta(hours=time.hour, minutes=time.minute) for date in full_dates]).reshape(-1, 1)
+            datetime_column = np.array([pd.Timestamp(date) + pd.Timedelta(hours=time.hour, minutes=time.minute) for date in combined_data.index]).reshape(-1, 1)
+            # 将日期+时间列添加到数据中
+            combined_data_with_datetime = np.hstack([datetime_column,combined_data.to_numpy()])
+            
+            # 将结果存入矩阵
+            matrix.append(combined_data_with_datetime)
+        
+        max_rows = max(arr.shape[0] for arr in matrix)
+        
+        # 将每个时间点的数据填充到最大行数
+        for i in range(len(matrix)):
+            if matrix[i].shape[0] < max_rows:
+                padding = np.full((max_rows - matrix[i].shape[0], 11), np.nan)  # 用NaN填充（10列数据 + 1列时间）
+                matrix[i] = np.vstack([matrix[i], padding])
+        
+        # 将矩阵堆叠成一个大的二维数组
+        matrix = np.vstack(matrix)
+        
+        matrix = pd.DataFrame(matrix,columns = ['datetime','offered'] +add_columns +  [f'freq_{i}' for i in range(start_time+1,end_time+1) ]\
+                              + [f'freq_last{i}' for i in range(start_time+1,end_time+1) ] + \
+                              [f'freq_next{i}' for i in range(start_time+1,end_time+1) ]+ \
+                               ['years_data_1','years_data_2','fiscalYear', 'ficalQuarter', 'fiscalMonth', 'fiscalWeek', 'DOW']).sort_values('datetime').reset_index(drop = True)
+        
+        matrix['hour'] = matrix.datetime.map(lambda x:x.hour)
+        matrix['minute'] = matrix.datetime.map(lambda x:x.minute)
+        matrix = matrix.sort_values('datetime').reset_index(drop = True)
+        
+        read_data = matrix.iloc[:]
+        
+        read_data = read_data[~read_data.offered.isna()].reset_index(drop = True)
+        # Quarter: 'Q1' → 1, ..., 'Q4' → 4
+        quarter_map = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+        read_data['ficalQuarter'] = read_data['ficalQuarter'].map(quarter_map)
+        year_map={'FY 2021':1 ,'FY 2022':2,'FY 2023':3,'FY 2024':4, 'FY 2025':5}
+        read_data['fiscalYear']=read_data['fiscalYear'].map(year_map)
+        # Month: 'January' → 1, ..., 'December' → 12
+        month_map = {
+            'January': 1, 'February': 2, 'March': 3, 'April': 4,
+            'May': 5, 'June': 6, 'July': 7, 'August': 8,
+            'September': 9, 'October': 10, 'November': 11, 'December': 12
+        }
+        read_data['fiscalMonth'] = read_data['fiscalMonth'].map(month_map)
+        
+        # Day of week: 'Monday' → 0, ..., 'Sunday' → 6
+        dow_map = {
+            'Monday': 0, 'Tuesday': 1, 'Wednesday': 2,
+            'Thursday': 3, 'Friday': 4, 'Saturday': 5, 'Sunday': 6
+        }
+        read_data['DOW'] = read_data['DOW'].map(dow_map)
+        read_data['fiscalWeek']=read_data['fiscalWeek'].apply(lambda x:pd.to_numeric(x))
+        # Step 2: Apply cyclical encoding
+        
+        read_data['ficalQuarter_sin'] = np.sin(2 * np.pi * read_data['ficalQuarter'] / 4)
+        read_data['ficalQuarter_cos'] = np.cos(2 * np.pi * read_data['ficalQuarter'] / 4)
+        
+        read_data['fiscalMonth_sin'] = np.sin(2 * np.pi * read_data['fiscalMonth'] / 12)
+        read_data['fiscalMonth_cos'] = np.cos(2 * np.pi * read_data['fiscalMonth'] / 12)
+        
+        read_data['fiscalWeek_sin'] = np.sin(2 * np.pi * read_data['fiscalWeek'] / 52)
+        read_data['fiscalWeek_cos'] = np.cos(2 * np.pi * read_data['fiscalWeek'] / 52)
+        
+        read_data['DOW_sin'] = np.sin(2 * np.pi * read_data['DOW'] / 7)
+        read_data['DOW_cos'] = np.cos(2 * np.pi * read_data['DOW'] / 7)
+
+        
+        
+        # Step 3: Drop original raw categorical time features
+        
+        read_data.drop(['ficalQuarter', 'fiscalMonth', 'fiscalWeek', 'DOW'], axis=1, inplace=True)
+        fill_na = read_data.iloc[:,1:].apply(lambda x:pd.to_numeric(x))
+    
+        fill_na = fill_na.interpolate(method='linear')
+        
+        fill_na['datetime'] = read_data.datetime
+        fill_na['date'] = fill_na.datetime.dt.date
+        fill_na = fill_na.dropna().reset_index(drop = True)
+    return fill_na
+
+def ETL_(month_list,data,holiday_data,unique_times):
+    '''
+    month_list is the list you want to forecast one and half month in advanced, for example
+    , if you want to forecast May, 2025, please input ['2025-03-15'], also you can include multiple value in the list
+    , like ['2024-11-15','2024-12-15','2025-01-15','2025-02-15','2025-03-15'];
+    data is the source data in dataframe;
+    holiday_data is the holiday data in dataframe
+    full_dates are all the Business days you want to feed into Model for training;
+    unique_times are the intervals need to forecast for every day;
+    '''
+    for month_number in month_list:
+        data = data[data.conversation_start_interval_tmst<=pd.to_datetime('{} 00:00:00'.format(month_number))]
+        holiday_data['~is_holiday'] = 0
+        Holiday_name = ['Christmas Day', 'Columbus Day',
+               'Independence Day', 'Labor Day', 'Martin Luther King Jr. Day',
+               'Memorial Day', "New Year's Day", "Presidents' Day", 'Thanksgiving Day',
+               'Veterans Day']
+        holiday_data['date'] = holiday_data.Date.dt.date
+        data['datetime'] = pd.to_datetime(data.conversation_start_interval_tmst)
+        data['date'] = data.datetime.dt.date
+        data.datetime = data.datetime.dt.floor('T')
+        data['datetime'] = data['datetime'].apply(
+            lambda x: x.ceil('30T') if x.minute == 29 else x
+        )
+        data['datetime'] = data['datetime'].apply(
+            lambda x: x.ceil('H') if x.minute == 59 else x
+        )
+        data['time'] = data.datetime.dt.time
+        data = data.sort_values('datetime').reset_index(drop = True)
+        data = data.sort_values(by='datetime')
+        date_column=data[['date',
+           'fiscalYear', 'ficalQuarter', 'fiscalMonth', 'fiscalWeek', 'DOW']]
+        date_column=date_column.set_index('date')
+        date_column = date_column[~date_column.index.duplicated(keep='first')]
+        date_column=date_column.sort_values('date')
+        # 获取所有唯一的日期
+        unique_dates = data['date'].unique()
+        data = pd.merge(data,holiday_data,on = 'date',how = 'left').fillna(1)
+        data = data[data['~is_holiday'] == 1]
+        
+        holiday_datetime = holiday_data.date.to_numpy()
+        
+        start_time = 35+23 # 58 how many days in advance
+        end_time = start_time+36 #36 is the train length
+    
+        
+        add_column = ['actans','actabn','absActHt','absActSa']
+        
+        add_columns =  [f'actans_{i}' for i in range(start_time+1,end_time+1) ] +\
+                        [f'actabn_{i}' for i in range(start_time+1,end_time+1) ] +\
+                        [f'absActHt_{i}' for i in range(start_time+1,end_time+1) ] +\
+                        [f'absActSa_{i}' for i in range(start_time+1,end_time+1) ]
+        
+        matrix = []
+        
+        # 遍历每个时间点
+        for time,time1,time2 in zip(unique_times,np.roll(unique_times, shift=-1),np.roll(unique_times, shift=1)):
+            # 过滤出当前时间点的数据
+            time_data = data[data['time'] == time].set_index('date')['offered']    
+            full_dates = pd.date_range(start=unique_dates.min(), end=unique_dates.max()+ pd.offsets.BDay(start_time), freq='B') # 仅工作日
+            full_dates = full_dates.difference(holiday_datetime)
+            time_data = time_data.groupby(time_data.index).sum()
             time_data = time_data.reindex(full_dates)  # 重新索引，缺失数据用NaN填充    
             shifted_data = pd.concat([time_data.shift(i) for i in range(start_time,end_time)], axis=1)
             
@@ -382,18 +540,13 @@ def Train_Model(train_dataset,test_dataset,unique_times):
     return all_predict, all_feature
 
 data = pd.read_excel('/workspace/ADP_SBS_Call_Center_Forecasting/Data/MidWest_WFM_Stat_2025_05_16.xlsx')
+data = pd.read_excel('/workspace/ADP_SBS_Call_Center_Forecasting/Data/CS East WFM STAT 2025_05_14.xlsx')
 data.columns = ['conversation_start_interval_tmst', 'Time', 'offered', 'actans',
                'actabn', 'absActHt', 'absActSa', 'parent', 'child', 'fiscalDate',
                'fiscalYear', 'ficalQuarter', 'fiscalMonth', 'fiscalWeek', 'DOW']
 data = data[~data .offered.isna()]
 data_=data.copy()
 holiday_data = pd.read_excel(r'/workspace/ADP_SBS_Call_Center_Forecasting/Data/holiday.xlsx')
-#month_list=['2025-02-15']
-unique_dates = data['conversation_start_interval_tmst'].dt.date.unique()
-start_time = 35 + 23
-end_time = start_time+36 #36 is the train length
-full_dates_train = pd.date_range(start=unique_dates.min(), end=unique_dates.max(), freq='B')  # 仅工作日
-full_dates_test = pd.date_range(start=unique_dates.min(), end=unique_dates.max()+ pd.offsets.BDay(start_time), freq='B')  # 仅工作日
 unique_times_Midwest = [ datetime.time(10, 0),
 datetime.time(10, 30), datetime.time(11, 0), datetime.time(11, 30),
 datetime.time(12, 0), datetime.time(12, 30), datetime.time(13, 0),
@@ -401,9 +554,19 @@ datetime.time(13, 30), datetime.time(14, 0), datetime.time(14, 30),
 datetime.time(15, 0), datetime.time(15, 30), datetime.time(16, 0),
 datetime.time(16, 30), datetime.time(17, 0), datetime.time(17, 30),datetime.time(18,0),datetime.time(18,30),datetime.time(19,0),datetime.time(19,30),datetime.time(20,0),datetime.time(20,30)
 ]
-month_list=['2025-01-15']
-fill_na=ETL(month_list,data,holiday_data,full_dates_train,unique_times_Midwest)
-fill_na_predict=ETL(month_list,data,holiday_data,full_dates_test,unique_times_Midwest)
+
+unique_times_East = [ datetime.time(7, 0), datetime.time(7, 30), datetime.time(8, 0)
+                ,datetime.time(8, 30),datetime.time(9, 0), datetime.time(9, 30), datetime.time(10, 0),
+datetime.time(10, 30), datetime.time(11, 0), datetime.time(11, 30),
+datetime.time(12, 0), datetime.time(12, 30), datetime.time(13, 0),
+datetime.time(13, 30), datetime.time(14, 0), datetime.time(14, 30),
+datetime.time(15, 0), datetime.time(15, 30), datetime.time(16, 0),
+datetime.time(16, 30), datetime.time(17, 0), datetime.time(17, 30),
+                 datetime.time(18, 0), datetime.time(18, 30), datetime.time(19, 0)
+]
+month_list=['2025-02-15']
+fill_na=ETL(month_list,data,holiday_data,unique_times_East)
+fill_na_predict=ETL_(month_list,data,holiday_data,unique_times_East)
 lstm_data = fill_na.dropna(axis = 0) 
 lstm_data
     

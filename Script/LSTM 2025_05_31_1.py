@@ -38,7 +38,6 @@ def calculate_mape(actual, predicted):
     # 计算 MAPE
     mape = np.mean(np.abs((actual - predicted) / actual)) * 100
     return mape
-
 def calculate_mape(actual, predicted):
     actual = np.array(actual)
     predicted = np.array(predicted)
@@ -63,10 +62,14 @@ def ETL(month_list,data,holiday_data,full_dates,unique_times):
     #for month_number in ['2024-11-15','2024-12-15','2025-01-15','2025-02-15','2025-03-15']:
     #for month_number in ['2024-11-15','2024-12-15','2025-01-15']:
         #ETL Process
-        
-        #data=df.copy()
-        #pd.set_option('display.max_rows', 100)
 
+        data.columns = ['conversation_start_interval_tmst', 'Time', 'offered', 'actans',
+               'actabn', 'absActHt', 'absActSa', 'parent', 'child', 'fiscalDate',
+               'fiscalYear', 'ficalQuarter', 'fiscalMonth', 'fiscalWeek', 'DOW']
+        
+        data = data[~data .offered.isna()]
+        # Month one and half need to set up 
+        data_=data.copy()
         data = data[data.conversation_start_interval_tmst<=pd.to_datetime('{} 00:00:00'.format(month_number))]
         holiday_data['~is_holiday'] = 0
         Holiday_name = ['Christmas Day', 'Columbus Day',
@@ -91,9 +94,6 @@ def ETL(month_list,data,holiday_data,full_dates,unique_times):
         date_column=date_column.set_index('date')
         date_column = date_column[~date_column.index.duplicated(keep='first')]
         date_column=date_column.sort_values('date')
-        # 获取所有唯一的时间点（如每天的09:00, 09:30等）
-        #unique_times = data['time'].unique()
-        
         # 获取所有唯一的日期
         unique_dates = data['date'].unique()
         data = pd.merge(data,holiday_data,on = 'date',how = 'left').fillna(1)
@@ -160,7 +160,6 @@ def ETL(month_list,data,holiday_data,full_dates,unique_times):
             datetime_column = np.array([pd.Timestamp(date) + pd.Timedelta(hours=time.hour, minutes=time.minute) for date in combined_data.index]).reshape(-1, 1)
             # 将日期+时间列添加到数据中
             combined_data_with_datetime = np.hstack([datetime_column,combined_data.to_numpy()])
-            #combined_data_with_datetime = np.hstack([datetime_column,combined_data.to_numpy()])[-start_time:]
             
             # 将结果存入矩阵
             matrix.append(combined_data_with_datetime)
@@ -221,6 +220,8 @@ def ETL(month_list,data,holiday_data,full_dates,unique_times):
         
         read_data['DOW_sin'] = np.sin(2 * np.pi * read_data['DOW'] / 7)
         read_data['DOW_cos'] = np.cos(2 * np.pi * read_data['DOW'] / 7)
+
+        
         
         # Step 3: Drop original raw categorical time features
         
@@ -232,11 +233,6 @@ def ETL(month_list,data,holiday_data,full_dates,unique_times):
         fill_na['datetime'] = read_data.datetime
         fill_na['date'] = fill_na.datetime.dt.date
         fill_na = fill_na.dropna().reset_index(drop = True)
-        
-        # fill_na = pd.concat([fill_na,pd.get_dummies(fill_na['month'],prefix = 'month').astype(int)],axis = 1)
-        # fill_na = pd.concat([fill_na,pd.get_dummies(fill_na['year'],prefix = 'year').astype(int)],axis = 1)
-        # fill_na['weekday'] = fill_na['datetime'].dt.day_name()
-        # fill_na = pd.concat([fill_na,pd.get_dummies(fill_na['weekday'],prefix = 'weekday').astype(int)],axis = 1)
     return fill_na
 
 def Train_Model(train_dataset,test_dataset,unique_times):
@@ -244,25 +240,34 @@ def Train_Model(train_dataset,test_dataset,unique_times):
     all_predict=pd.DataFrame()
     for (hour,minute) in [(i.hour,i.minute) for i in unique_times]:
         now_lstm_data = train_dataset[(train_dataset.hour == hour)&(train_dataset.minute == minute)]
-        #now_lstm_data = now_lstm_data[now_lstm_data.week_num == week_]
-        now_fill_na_predict = test_dataset[(test_dataset.hour == hour)&(test_dataset.minute == minute)]
-        #now_fill_na_predict = now_fill_na_predict[now_fill_na_predict.week_num == week_]
-    
+        now_fill_na_predict = test_dataset[(test_dataset.hour == hour)&(test_dataset.minute == minute)]    
         now_time_list = now_lstm_data.datetime.to_numpy()
         cols=  ['offered', 'datetime'] + [col for col in now_lstm_data.columns if col not in ['offered', 'datetime','date']]
         cols_=[col for col in now_lstm_data.columns if col not in ['offered', 'datetime','date']]
-        now_lstm_data = now_lstm_data[cols].reset_index(drop = True)
+        date_cols=['fiscalYear','ficalQuarter_sin','ficalQuarter_cos'
+              ,'fiscalMonth_sin','fiscalMonth_cos','fiscalWeek_sin','DOW_cos','DOW_sin','hour','minute','datetime','date','offered']
+        cal_cols=['fiscalYear','ficalQuarter_sin','ficalQuarter_cos'
+              ,'fiscalMonth_sin','fiscalMonth_cos','fiscalWeek_sin','DOW_cos','DOW_sin']
+        cols_offered=[col for col in now_lstm_data.columns if col not in date_cols]
+
+        now_lstm_data = now_lstm_data.reset_index(drop = True)
         # 归一化数据
-    
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        scaled_data = scaler.fit_transform(now_lstm_data[['offered']][:-start_time])
+        
+        # Separate the parts
+        to_scale_df = now_lstm_data[cols_offered]
+        keep_df = now_lstm_data[cal_cols]
+        scaler_y = MinMaxScaler(feature_range=(0, 1))
+        scaler_x = MinMaxScaler(feature_range=(0, 1))
+        scaled_data = scaler_y.fit_transform(now_lstm_data[['offered']])
+        scaled_array = scaler_x.fit_transform(to_scale_df)
+        scaled_df = pd.DataFrame(scaled_array, columns=cols_offered)
+        # Concatenate back together
+        X_combined = pd.concat([keep_df.reset_index(drop=True), scaled_df.reset_index(drop=True)], axis=1)
         # 设置时间步长
         time_step = start_time
         # 创建训练数据集
-        X_train_1, y_train =now_lstm_data[cols_][:-start_time] , scaled_data
-    
-        X_test_1, y_test =now_lstm_data[cols_][-start_time:] , now_lstm_data[['offered']][-start_time:]
-    
+        X_train_1, y_train =X_combined [:-start_time] , scaled_data[:-start_time]
+        X_test_1, y_test =X_combined[-start_time:]  , scaled_data[-start_time:]
         X_train_1 = np.array(X_train_1)
         y_train = np.array(y_train)
         X_test_1 = np.array(X_test_1)
@@ -278,32 +283,30 @@ def Train_Model(train_dataset,test_dataset,unique_times):
         # 构建LSTM模型
         model_1 = Sequential()
         model_1.add(LSTM(50, return_sequences=True, input_shape=(time_step, 1)))
-        model_1.add(LSTM(50, return_sequences=False))
         model_1.add(Dense(25))
+        model_1.add(LSTM(20, return_sequences=False))
         model_1.add(Dense(1))
     
         # 编译模型
         model_1.compile(optimizer='adam', loss='mean_squared_error')
         model_1.fit(X_train_1, y_train, batch_size=32, epochs=20)
         train_predict_1 = model_1.predict(X_train_1)
-        train_predict_1 = scaler.inverse_transform(train_predict_1)
-        True_data_1 = scaler.inverse_transform(y_train.reshape(-1, 1))
+        train_predict_1 = scaler_y.inverse_transform(train_predict_1)
+        True_data_1 = scaler_y.inverse_transform(y_train.reshape(-1, 1))
         print(calculate_mape(train_predict_1, True_data_1))
         return_y_1 =  model_1.predict(X_test_1)
-        return_y_pred_1 = scaler.inverse_transform(np.array(return_y_1).reshape(-1, 1))
+        return_y_pred_1 = scaler_y.inverse_transform(np.array(return_y_1).reshape(-1, 1))
         now_predict_1 = pd.DataFrame(return_y_pred_1,columns = ['predict'])
         now_predict_1['datetime'] = now_time_list[-start_time:]
-        now_lstm_data = now_lstm_data[['offered'] +cols_].reset_index(drop = True)
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        scaled_data = scaler.fit_transform(now_lstm_data[['offered']][:-start_time])
+        now_lstm_data = now_lstm_data[['offered'] +cols_].reset_index(drop = True)        
         # 设置时间步长
         time_step = start_time
         # 创建训练数据集
-    
-        X_train_2, y_train =now_lstm_data[cols_][:-start_time] , scaled_data
-    
-        X_test_2, y_test =now_lstm_data[cols_][-start_time:] , now_lstm_data[['offered']][-start_time:]
-    
+        X_train_2 = X_combined[:-start_time]
+        X_test_2 = X_combined[-start_time:]
+        y_train = scaled_data[:-start_time]
+        y_test = scaled_data[-start_time:]
+        
         X_train_2 = np.array(X_train_2)
         y_train = np.array(y_train)
         X_test_2 = np.array(X_test_2)
@@ -327,25 +330,25 @@ def Train_Model(train_dataset,test_dataset,unique_times):
         model_2.compile(optimizer='adam', loss='mean_squared_error')
         model_2.fit(X_train_2, y_train, batch_size=32, epochs=20)
         train_predict_2 = model_2.predict(X_train_2)
-        train_predict_2 = scaler.inverse_transform(train_predict_2)
-        True_data_2 = scaler.inverse_transform(y_train.reshape(-1, 1))
+        train_predict_2 = scaler_y.inverse_transform(train_predict_2)
+        True_data_2 = scaler_y.inverse_transform(y_train.reshape(-1, 1))
         print(calculate_mape(train_predict_2, True_data_2))
         return_y_2 =  model_2.predict(X_test_2)
-        return_y_pred_2 = scaler.inverse_transform(np.array(return_y_2).reshape(-1, 1))
+        return_y_pred_2 = scaler_y.inverse_transform(np.array(return_y_2).reshape(-1, 1))
         now_predict_2 = pd.DataFrame(return_y_pred_2,columns = ['predict'])
         now_predict_2['datetime'] = now_time_list[-start_time:]
         print(calculate_mape(y_test, return_y_pred_2))
         if calculate_mape(y_test, return_y_pred_1) < calculate_mape(y_test, return_y_pred_2):
             all_predict = pd.concat([now_predict_1,all_predict])
             future_X = now_fill_na_predict[cols_].to_numpy()
-            future_data = scaler.inverse_transform(np.array(\
+            future_data = scaler_y.inverse_transform(np.array(\
                             model_1.predict(future_X.reshape(future_X.shape[0], future_X.shape[1], 1))).reshape(-1, 1))
             future_data = pd.DataFrame(future_data,columns = ['predict'])
             all_feature = pd.concat([all_feature,future_data])
         else:
             all_predict = pd.concat([now_predict_2,all_predict])
             future_X = now_fill_na_predict[cols_].to_numpy()
-            future_data = scaler.inverse_transform(np.array(\
+            future_data = scaler_y.inverse_transform(np.array(\
                             model_2.predict(future_X.reshape(future_X.shape[0], future_X.shape[1], 1))).reshape(-1, 1))
             future_data = pd.DataFrame(future_data,columns = ['predict'])
             all_feature = pd.concat([all_feature,future_data])
@@ -378,7 +381,7 @@ data.columns = ['conversation_start_interval_tmst', 'Time', 'offered', 'actans',
 data = data[~data .offered.isna()]
 data_=data.copy()
 holiday_data = pd.read_excel(r'/workspace/ADP_SBS_Call_Center_Forecasting/Data/holiday.xlsx')
-month_list=['2025-02-15']
+#month_list=['2025-02-15']
 unique_dates = data['conversation_start_interval_tmst'].dt.date.unique()
 start_time = 35 + 23
 end_time = start_time+36 #36 is the train length
@@ -391,6 +394,7 @@ datetime.time(13, 30), datetime.time(14, 0), datetime.time(14, 30),
 datetime.time(15, 0), datetime.time(15, 30), datetime.time(16, 0),
 datetime.time(16, 30), datetime.time(17, 0), datetime.time(17, 30),datetime.time(18,0),datetime.time(18,30),datetime.time(19,0),datetime.time(19,30),datetime.time(20,0),datetime.time(20,30)
 ]
+month_list=['2025-01-15']
 fill_na=ETL(month_list,data,holiday_data,full_dates_train,unique_times_Midwest)
 fill_na_predict=ETL(month_list,data,holiday_data,full_dates_test,unique_times_Midwest)
 lstm_data = fill_na.dropna(axis = 0) 
@@ -403,5 +407,7 @@ for i in lstm_data.columns:
         fill_na_predict[i] = 0
 all_predict,all_feature=Train_Model(lstm_data,fill_na_predict,unique_times_Midwest)
 month_number=month_list[-1]
-all_predict.to_excel(r'workspace/Midwest_CS_Test_Improved_{}.xlsx'.format(month_number))
-all_feature.to_excel(r'workspace/Midwest_CS_Target_Improved_{}.xlsx'.format(month_number))
+from datetime import datetime
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+all_predict.to_excel(f'workspace/Midwest_CS_Test_Improved_{month_number}_{timestamp}.xlsx')
+all_feature.to_excel(f'workspace/Midwest_CS_Target_Improved_{month_number}_{timestamp}.xlsx')
